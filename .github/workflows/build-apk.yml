@@ -1,0 +1,70 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Generate Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.4
+
+    - name: Setup resources
+      run: |
+        touch app/proguard-rules.pro
+        pip install Pillow --quiet
+
+        python3 << 'PYEOF'
+        import os
+        from PIL import Image
+
+        # Use logo.png from repo root (included in the repo)
+        logo_path = "logo.png"
+        if not os.path.exists(logo_path):
+            # Fallback: create a simple colored icon (should never happen)
+            img = Image.new('RGB', (192, 192), (233, 69, 96))
+            img.save(logo_path)
+            print("WARNING: logo.png not found in repo! Created fallback.")
+
+        # Resize logo for each density
+        final = Image.open(logo_path).convert("RGB")
+        print(f'Logo loaded: {final.size}')
+
+        sizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
+        for density, size in sizes.items():
+            d = f'app/src/main/res/mipmap-{density}'
+            os.makedirs(d, exist_ok=True)
+            img = final.resize((size, size), Image.LANCZOS)
+            img.save(f'{d}/ic_launcher.png')
+            img.save(f'{d}/ic_launcher_round.png')
+            print(f'Created {size}x{size} icon in {d}')
+        PYEOF
+
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug --stacktrace
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: BDSuperChatAlert-APK
+        path: app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 30
